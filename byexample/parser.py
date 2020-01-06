@@ -66,9 +66,12 @@ class ExampleParser(ExtendOptionParserMixin):
         *cannot* be used as a valid character in the name.
         Instead you should use minus '-'.
         '''
+        open, close = map(re.escape, '<>')
+
+        name_re = r'[A-Za-z.][A-Za-z0-9:.-]*'
         return {
-            'split': re.compile(r"(<[A-Za-z.][A-Za-z0-9:.-]*>)"),
-            'full': re.compile(r"<(?P<name>[A-Za-z.][A-Za-z0-9:.-]*)>"),
+            'split': re.compile(r"(%s%s%s)" % (open, name_re, close)),
+            'full': re.compile(r"%s(?P<name>%s)%s" % (open, name_re, close)),
         }
 
     def ellipsis_marker(self):

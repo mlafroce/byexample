@@ -33,7 +33,7 @@ class SM(object):
         self.capture_tag_split_regex = capture_tag_regexs.for_split
         self.ellipsis_marker = ellipsis_marker
 
-        self.input_regex = input_regexs.for_capture
+        self.input_capture_regex = input_regexs.for_capture
         self.input_check_regex = input_regexs.for_check
 
         self.reset()
@@ -222,53 +222,110 @@ class SM(object):
         rc = 0
         return self.emit(charno, rx, rc)
 
-    def expected_tokenizer(self, expected_str, tags_enabled):
+    def expected_tokenizer(self, expected_str, tags_enabled, input_enabled):
         ''' Iterate over the interesting tokens of the expected string:
-             - newlines     - wspaces     - literals    - tag
+             - newlines   - wspaces   - literals   - tag   - input   - warn
 
-            >>> _tokenizer = sm.expected_tokenizer
+            >>> _tokenizer = partial(sm.expected_tokenizer, tags_enabled=True, input_enabled=True)
 
-            >>> list(_tokenizer('', True))
+            >>> list(_tokenizer(''))
             [(0, 'end', None)]
 
             Return an iterable of tuples: (<charno>, <token type>, <token val>)
-            >>> list(_tokenizer(' ', True))
+            >>> list(_tokenizer(' '))
             [(0, 'wspaces', ' '), (1, 'end', None)]
 
             Multiple chars are considered a single 'literals' token
-            >>> list(_tokenizer('abc', True))
+            >>> list(_tokenizer('abc'))
             [(0, 'literals', 'abc'), (3, 'end', None)]
 
             Each tuple contains the <charno>: the position in the string
             where the token was found
-            >>> list(_tokenizer('abc def', True))       # byexample: +norm-ws
+            >>> list(_tokenizer('abc def'))       # byexample: +norm-ws
             [(0, 'literals', 'abc'), (3, 'wspaces', ' '),
              (4, 'literals', 'def'), (7, 'end', None)]
 
             Multiple spaces are considered a single 'wspaces' token.
-            >>> list(_tokenizer(' abc  def\t', True))          # byexample: +norm-ws
+            >>> list(_tokenizer(' abc  def\t'))          # byexample: +norm-ws
             [(0, 'wspaces', ' '),  (1, 'literals', 'abc'),
              (4, 'wspaces', '  '), (6, 'literals', 'def'), (9, 'wspaces', '\t'),
              (10, 'end', None)]
 
             Each tuple contains the string that constitutes the token.
-            >>> list(_tokenizer('<foo><bar> \n\n<...> <...>def <...>', True))  # byexample: +norm-ws -tags
+            >>> list(_tokenizer('<foo><bar> \n\n<...> <...>def <...>'))  # byexample: +norm-ws -tags
             [(0,  'tag', '<foo>'),      (5,  'tag', '<bar>'), (10, 'wspaces', ' '),
              (11, 'newlines', '\n\n'),  (13, 'tag', '<...>'),
              (18, 'wspaces', ' '),      (19, 'tag', '<...>'), (24, 'literals', 'def'),
              (27, 'wspaces', ' '),      (28, 'tag', '<...>'), (33, 'end', None)]
 
+            This also includes the inputs. They are similar in structure
+            to a tag however they only can appear at the end of the line
+            (trailing spaces are ok) and their values are the text input
+            without the markers (by default [ and ]):
+            >>> list(_tokenizer('user: [john doe]\npass: [123] \nrole:[admin] '))  # byexample: +norm-ws -tags
+            [(0, 'literals', 'user:'),      (5, 'wspaces', ' '),
+             (6, 'input', 'john doe'),      (16, 'newlines', '\n'),
+             (17, 'literals', 'pass:'),     (22, 'wspaces', ' '),
+             (23, 'input', '123'),          (28, 'wspaces', ' '),
+             (29, 'newlines', '\n'),
+             (30, 'literals', 'role:'),     (35, 'input', 'admin'),
+             (42, 'wspaces', ' '),          (43, 'end', None)]
+
             If <tags_enabled> is False, the tags are considered literals
-            >>> list(_tokenizer('<foo><bar> \n\n<...> <...>def <...>', False))  # byexample: +norm-ws -tags
+            >>> list(_tokenizer('<foo><bar> \n\n<...> <...>def <...>', tags_enabled=False))  # byexample: +norm-ws -tags
             [(0,  'literals', '<foo><bar>'), (10, 'wspaces', ' '),
              (11, 'newlines', '\n\n'),       (13, 'literals', '<...>'),
              (18, 'wspaces', ' '),           (19, 'literals', '<...>def'),
              (27, 'wspaces', ' '),           (28, 'literals', '<...>'), (33, 'end', None)]
+
+            If <input_enabled> is False, the input tags are considered literals
+            >>> list(_tokenizer('[foo][bar] \n\n[...] [...]def [...]', input_enabled=False))  # byexample: +norm-ws -tags
+            [(0,  'literals', '[foo][bar]'), (10, 'wspaces', ' '),
+             (11, 'newlines', '\n\n'),       (13, 'literals', '[...]'),
+             (18, 'wspaces', ' '),           (19, 'literals', '[...]def'),
+             (27, 'wspaces', ' '),           (28, 'literals', '[...]'), (33, 'end', None)]
+
+            The tokenizer can detect some weird conditions and
+            yield warnings as special tokens but proceeding with the parsing
+            as usual.
+
+            For example, more than one input is not allowed as well inputs
+            that are not at the end of the line. This may be ok or it
+            may an error of the user (she may not understand how the inputs
+            works thinking that it can be anywhere or it just typed something
+            after an input by accident).
+            Also, a tag inside an input makes no sense: you cannot capture
+            what you are typing. This may be a typo or a failure in the paste
+            mode.
+            >>> list(_tokenizer('user: [john doe]ups\npass: [123][a<d>min] '))  # byexample: +norm-ws -tags
+            [(6, 'warn', 'input-not-at-the-end'),
+             (0, 'literals', 'user:'),      (5, 'wspaces', ' '),
+             (6, 'literals', '[john'),      (11, 'wspaces', ' '),
+             (12, 'literals', 'doe]ups'),   (19, 'newlines', '\n'),
+             (26, 'warn', 'input-not-at-the-end'),
+             (20, 'literals', 'pass:'),     (25, 'wspaces', ' '),
+             (26, 'literals', '[123]'),     (32, 'warn', 'tag-inside-input'),
+             (31, 'input', 'a<d>min'),
+             (40, 'wspaces', ' '),          (41, 'end', None)]
+
+            This last example has several interesting things:
+                - the warnings are "out of order": their charno will not
+                  follow a monotonic increasing sequence.
+                - in the case of 'input-not-at-the-end', inputs are *not*
+                  removed from the token list and they are returned
+                  as literals (like `[john`)
+                - tags inside inputs like `[a<d>min]` are warnings too
+                  with an *approximate* charno; the input is *not* removed
+                  either.
         '''
 
         nl_splitter = self.one_or_more_nl_capture_regex()
         ws_splitter = self.one_or_more_ws_capture_regex()
         tag_splitter = self.capture_tag_split_regex
+        input_capture_regex = self.input_capture_regex
+        input_check_regex = self.input_check_regex
+
+        # TODO return lineno also to debug easily
 
         charno = 0
         for k, line_or_newlines in enumerate(nl_splitter.split(expected_str)):
@@ -279,6 +336,23 @@ class SM(object):
                 continue
 
             line = line_or_newlines
+
+            # is the last part of the line an input?
+            input_match = input_capture_regex.search(
+                line
+            ) if input_enabled else None
+            if input_match:
+                charno_after_input = charno + len(line)
+
+                # strip the input tag off
+                line = input_capture_regex.sub('', line)
+
+            # do we have any piece of the line that looks like an input?
+            if input_enabled:
+                m = input_check_regex.search(line)
+                if m:
+                    yield (charno + m.start(), 'warn', 'input-not-at-the-end')
+
             for j, word_or_spaces in enumerate(ws_splitter.split(line)):
                 if j % 2 == 1:
                     wspaces = word_or_spaces
@@ -303,11 +377,24 @@ class SM(object):
                     if literals:
                         yield (charno, 'literals', literals)
                         charno += len(literals)
+
+            if input_match:
+                input, trailing = input_match.groups()
+                m = tag_splitter.search(input)
+                if m:
+                    yield (charno + m.start(), 'warn', 'tag-inside-input')
+
+                yield (charno, 'input', input)
+                charno = charno_after_input
+
+                if trailing:
+                    yield (charno - len(trailing), 'wspaces', trailing)
+
         yield (charno, 'end', None)
 
     def parse(self, expected, tags_enabled):
         self.reset()
-        tokenizer = self.expected_tokenizer(expected, tags_enabled)
+        tokenizer = self.expected_tokenizer(expected, tags_enabled, False)
 
         while not self.ended():
             charno, ttype, token = next(tokenizer, (None, None, None))

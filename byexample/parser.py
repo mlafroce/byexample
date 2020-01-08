@@ -1,5 +1,5 @@
 from __future__ import unicode_literals
-import re, shlex, argparse
+import re, shlex, argparse, bisect, collections
 from .common import tohuman, constant
 from .options import OptionParser, UnrecognizedOption, ExtendOptionParserMixin
 from .expected import _LinearExpected, _RegexExpected
@@ -9,6 +9,7 @@ from .parser_sm import SM_NormWS, SM_NotNormWS
 def tag_name_as_regex_name(name):
     return name.replace('-', '_')
 
+TagRegexs = collections.namedtuple('TagRegexs', ['for_split', 'for_capture'])
 
 class ExampleParser(ExtendOptionParserMixin):
     def __init__(self, verbosity, encoding, options, **unused):
@@ -58,21 +59,25 @@ class ExampleParser(ExtendOptionParserMixin):
         return parser
 
     @constant
-    def capture_tag_regex(self):
+    def capture_tag_regexs(self):
         '''
-        Return a regular expression to match a 'capture tag'.
+        Return a set of regular expressions to match a 'capture tag'.
 
         Due implementation details the underscore character '_'
         *cannot* be used as a valid character in the name.
         Instead you should use minus '-'.
+
+        The returned regex can be used for splitting a string
+        or for capturing.
         '''
         open, close = map(re.escape, '<>')
 
         name_re = r'[A-Za-z.][A-Za-z0-9:.-]*'
+        return TagRegexs(
+                for_split = re.compile(r"(%s%s%s)" % (open, name_re, close)),
+                for_capture = re.compile(r"%s(?P<name>%s)%s" % (open, name_re, close))
+                )
         return {
-            'split': re.compile(r"(%s%s%s)" % (open, name_re, close)),
-            'full': re.compile(r"%s(?P<name>%s)%s" % (open, name_re, close)),
-        }
 
     def ellipsis_marker(self):
         return '...'
@@ -219,8 +224,9 @@ class ExampleParser(ExtendOptionParserMixin):
             >>> tags_by_idx
             {2: None, 4: 'foo-bar'}
         '''
-        capture_tag_regex = self.capture_tag_regex()['full']
-        capture_tag_split_regex = self.capture_tag_regex()['split']
+        regex = self.capture_tag_regexs()
+        capture_tag_regex = regex.for_capture
+        capture_tag_split_regex = regex.for_split
         ellipsis_marker = self.ellipsis_marker()
         if normalize_whitespace:
             sm = SM_NormWS(

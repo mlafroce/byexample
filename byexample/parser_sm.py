@@ -3,7 +3,7 @@ from .common import constant
 
 INIT, WS, LIT, TAG, END, TWOTAGS, EXHAUSTED, ERROR = range(8)
 tWS = ('wspaces', 'newlines')
-tLIT = ('wspaces', 'newlines', 'literals')
+tLIT = ('wspaces', 'newlines', 'literals', 'input')
 '''
 >>> from byexample.parser_sm import SM, SM_NormWS, SM_NotNormWS
 >>> from byexample.parser import ExampleParser
@@ -255,6 +255,100 @@ class SM(object):
         return self.emit(charno, rx, rc, True)
 
     def emit_input(self, echo=False):
+        '''
+            An 'input' is a piece of text in the expected string that
+            it is not suppoused to be found in the real output of an
+            example.
+
+            Instead, it is some text that it is *typed in*.
+
+            For emission, there must be some amount of real and
+            concrete literals. These will be the prefix of the the input
+            used by the driver to know *when" the driver must type
+            the given text.
+
+            >>> sm.push(0, 'username:')
+            >>> sm.emit_literals()
+            (0, 'username\\:', 9)
+
+            >>> sm.push(9, 'jdoe')
+            >>> sm.emit_input()
+
+            >>> sm.input_list
+            [('username\\:', 'jdoe')]
+
+            Notice how the emit_input *does not* return a regex, however it
+            pushes literals to the queue. The idea is
+            that this regex will match what the interpreted *may* echo back.
+
+            >>> sm.emit_literals()
+            (9, 'jdoe', 4)
+
+            If not enough literals are as prefix, this fails. Typically
+            a tag (<...>) "breaks" and reset the prefix
+
+            >>> sm.push(1, '<...>')
+            >>> sm.emit_tag(ctx='0', endline=False)     # byexample: +pass
+
+            >>> sm.push(1, 'pas')
+            >>> sm.emit_literals()
+            (1, 'pas', 3)
+
+            >>> sm.push(4, 'admin123')
+            >>> sm.emit_input()
+            Traceback (most recent call last):<...>
+            ValueError: There are too few characters before the input tag at character 4th to proceed
+
+            >>> sm.input_prefix_min_len
+            6
+
+            Several literals can contribute to build a longer prefix:
+
+            >>> sm.push(4, 'sw')
+            >>> sm.emit_literals()
+            (4, 'sw', 2)
+
+            >>> sm.push(6, 'ord:')
+            >>> sm.emit_literals()
+            (6, 'ord\\:', 4)
+
+            >>> sm.push(10, 'admin123')
+            >>> sm.emit_input()
+            >>> sm.emit_literals()
+            (10, 'admin123', 8)
+
+            As you can see, the prefix is made from the concatenation of all the
+            previous literals:
+            >>> sm.input_list
+            [('username\\:', 'jdoe'), ('password\\:', 'admin123')]
+
+            Too long prefix are truncated to the concatenation of the last
+            literals that sum enough:
+
+            >>> sm.push(1, '<...>')
+            >>> sm.emit_tag(ctx='0', endline=False)     # byexample: +pass
+
+            >>> sm.push(1, 'What is')
+            >>> sm.emit_literals()     # byexample: +pass
+            >>> sm.push(8, 'your real')
+            >>> sm.emit_literals()     # byexample: +pass
+            >>> sm.push(17, ' name?')
+            >>> sm.emit_literals()     # byexample: +pass
+
+            >>> sm.push(22, 'john doe')
+            >>> sm.emit_input()
+            >>> sm.emit_literals()
+            (22, 'john\\ doe', 8)
+
+            >>> sm.input_list                   # byexample: +norm-ws
+            [('username\\:', 'jdoe'),
+             ('password\\:', 'admin123'),
+             ('your\\ real\\ name\\?', 'john doe')]
+
+            >>> sm.input_prefix_max_len
+            12
+            '''
+
         charno, input = self.pull()
         _, prefix_regex, prefix_rcount = self.get_last_literals_seen()
 
@@ -264,11 +358,7 @@ class SM(object):
         self.input_list.append((prefix_regex, input))
 
         # the interpreter will echo our input so we need to "expect" it.
-        if echo:
-            self.push((charno, input))
-            self.emit_literals()
-            # TODO if we are echoing, then we need to change the self.state
-            # of the parser to LIT
+        self.push(charno, input)
 
     def expected_tokenizer(self, expected_str, tags_enabled, input_enabled):
         ''' Iterate over the interesting tokens of the expected string:
@@ -491,22 +581,24 @@ class SM_NormWS(SM):
             assert stash_size == 1
             if ttype in tWS:
                 self.state = WS
-            elif ttype == 'literals':
+            elif ttype in ('literals', 'input'):
                 self.state = LIT
             elif ttype == 'tag':
                 self.state = TAG
             elif ttype == 'end':
                 self.state = END
-            elif ttype == 'input':
-                self.emit_input()
             else:
                 assert False
+
+            if ttype == 'input':
+                self.emit_input()
+
         elif self.state == WS:
             assert stash_size == 2
             if ttype in tWS:
                 self.drop(last=True)  # drop the last pushed wspaces/newlines
                 self.state = WS
-            elif ttype == 'literals':
+            elif ttype in ('literals', 'input'):
                 self.emit_ws()
                 self.state = LIT
             elif ttype == 'tag':
@@ -517,16 +609,18 @@ class SM_NormWS(SM):
                 _, token = self.pull()  # get the end token
                 push(charno, token)
                 self.state = END  # ignore the first wspaces/newlines token
-            elif ttype == 'input':
-                self.emit_input()
             else:
                 assert False
+
+            if ttype == 'input':
+                self.emit_input()
+
         elif self.state == LIT:
             assert stash_size == 2
             if ttype in tWS:
                 self.emit_literals()
                 self.state = WS
-            elif ttype == 'literals':
+            elif ttype in ('literals', 'input'):
                 self.emit_literals()
                 self.state = LIT
             elif ttype == 'tag':
@@ -535,16 +629,18 @@ class SM_NormWS(SM):
             elif ttype == 'end':
                 self.emit_literals()
                 self.state = END
-            elif ttype == 'input':
-                self.emit_input()
             else:
                 assert False
+
+            if ttype == 'input':
+                self.emit_input()
+
         elif self.state == TAG:
             assert stash_size == 2
             if ttype in tWS:
                 self.emit_tag(ctx='r', endline=(ttype == 'newlines'))
                 self.state = WS
-            elif ttype == 'literals':
+            elif ttype in ('literals', 'input'):
                 self.emit_tag(ctx='0', endline=False)
                 self.state = LIT
             elif ttype == 'tag':
@@ -552,10 +648,12 @@ class SM_NormWS(SM):
             elif ttype == 'end':
                 self.emit_tag(ctx='r', endline=True)
                 self.state = END
-            elif ttype == 'input':
-                self.emit_input()
             else:
                 assert False
+
+            if ttype == 'input':
+                self.emit_input()
+
         elif self.state == END:
             assert stash_size == 2
             assert ttype is None  # next token doesn't exist: tokenizer exhausted
@@ -568,7 +666,7 @@ class SM_NormWS(SM):
                 self.emit_ws(just_one=True)
                 self.emit_tag(ctx='b', endline=(ttype == 'newlines'))
                 self.state = WS
-            elif ttype == 'literals':
+            elif ttype in ('literals', 'input'):
                 self.emit_ws()
                 self.emit_tag(ctx='l', endline=False)
                 self.state = LIT
@@ -579,10 +677,12 @@ class SM_NormWS(SM):
                 self.emit_ws(just_one=True)
                 self.emit_tag(ctx='b', endline=True)
                 self.state = END
-            elif ttype == 'input':
-                self.emit_input()
             else:
                 assert False
+
+            if ttype == 'input':
+                self.emit_input()
+
         elif self.state == TWOTAGS:
             assert stash_size == 3
             self.state = ERROR
@@ -799,6 +899,7 @@ class SM_NotNormWS(SM):
         push = self.push
         drop = self.drop
 
+
         push(charno, token)
         stash_size = len(self.stash)
         if self.state == INIT:
@@ -809,10 +910,12 @@ class SM_NotNormWS(SM):
                 self.state = TAG
             elif ttype == 'end':
                 self.state = END
-            elif ttype == 'input':
-                self.emit_input()
             else:
                 assert False
+
+            if ttype == 'input':
+                self.emit_input()
+
         elif self.state == LIT:
             assert stash_size == 2
             if ttype in tLIT:
@@ -824,10 +927,12 @@ class SM_NotNormWS(SM):
             elif ttype == 'end':
                 self.emit_literals()
                 self.state = END
-            elif ttype == 'input':
-                self.emit_input()
             else:
                 assert False
+
+            if ttype == 'input':
+                self.emit_input()
+
         elif self.state == TAG:
             assert stash_size == 2
             if ttype in tLIT:
@@ -838,10 +943,12 @@ class SM_NotNormWS(SM):
             elif ttype == 'end':
                 self.emit_tag(ctx='n', endline=True)
                 self.state = END
-            elif ttype == 'input':
-                self.emit_input()
             else:
                 assert False
+
+            if ttype == 'input':
+                self.emit_input()
+
         elif self.state == END:
             assert stash_size == 2
             assert ttype is None  # next token doesn't exist: tokenizer exhausted

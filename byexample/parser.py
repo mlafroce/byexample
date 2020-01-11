@@ -341,6 +341,132 @@ class ExampleParser(ExtendOptionParserMixin):
             self._opts_cache[tuple(optlist)] = val
             return val
 
+    def extract_input_list(self, expected_str, tmp):
+        ''' Extract a list of (prefix, input) tuples from the expected
+            output of the example (<expected_str>).
+
+            The <input> are the strings to be typed in during the
+            execution of the examples; the <prefix> are the expected
+            output that should appear before.
+
+            >>> from byexample.parser import ExampleParser
+            >>> from functools import partial
+
+            >>> parser = ExampleParser(0, 'utf8', None); parser.language = 'python'
+            >>> _regexs = partial(parser.expected_as_regexs, tags_enabled=True, normalize_whitespace=False)
+            >>> _inputs = parser.extract_input_list
+
+            >>> expected = 'foo [bar] baz'
+            >>> _inputs(expected, _regexs(expected))
+            [('foo ', 'bar')]
+
+            >>> expected = 'foo [bar] baz [bla]'
+            >>> _inputs(expected, _regexs(expected))
+            [('foo ', 'bar'), (' baz ', 'bla')]
+
+            >>> expected = '[bar] baz [bla]'
+            >>> _inputs(expected, _regexs(expected))
+            [('', 'bar'), (' baz ', 'bla')]
+
+            >>> expected = 'foo [bar][bla]'
+            >>> _inputs(expected, _regexs(expected))
+            [('foo ', 'bar'), ('', 'bla')]
+
+
+            >>> expected = 'foo <tag> zaz [bar]'
+            >>> _inputs(expected, _regexs(expected))
+            [(' zaz ', 'bar')]
+
+            >>> expected = 'foo <tag>y<tag2> zaz [bar]'
+            >>> _inputs(expected, _regexs(expected))
+            [(' zaz ', 'bar')]
+
+            >>> expected = 'foo <tag>x<tag2>yy<tag3> zaz [bar]<tag4>q[zaz]'
+            >>> _inputs(expected, _regexs(expected))
+            [(' zaz ', 'bar'), ('q', 'zaz')]
+
+            >>> expected = 'foo [<tag>] [bla]'
+            >>> _inputs(expected, _regexs(expected))
+            Error. The following tags were found inside of a type tag:
+            tag
+            [('foo ', '<tag>'), (' ', 'bla')]
+            '''
+        regexs, charnos, _, tags_by_idx = tmp
+        tag_by_charno = {charnos[ix]: tag for ix, tag in tags_by_idx.items()}
+        tag_charnos = list(sorted(tag_by_charno.keys()))
+
+        input_list = []
+        prefix = None
+
+        charno = 0
+        for i, token in enumerate(self.input_regex().split(expected_str)):
+            token_is_an_input = i % 2 == 1
+            if token_is_an_input:
+                input = token
+                assert prefix is not None
+
+                # this "+2" counts the [ and ] markers
+                nextcharno = charno + len(input) + 2
+
+            else:
+                output = token
+                nextcharno = charno + len(output)
+
+            # Range (left-inclusive, right-inclusive) of charnos of
+            # tags that are between the current charno and the next one
+            # (tags that are "inside" of our current "token"
+            #
+            # charno <= tag_charnos[r] <= nextcharno <= tag_charnos[l]
+
+            # tag_charnos[:r] < charno <= tag_charnos[r:]
+            r = bisect.bisect_left(tag_charnos, charno)
+
+            # tag_charnos[:l] < nextcharno <= tag_charnos[l:]
+            l = bisect.bisect_left(tag_charnos, nextcharno)
+
+            # tag_charnos[r:l] now contains the charno of each tag that are
+            # "inside" of the current "token"
+            tag_charnos_inside = tag_charnos[r:l]
+
+            if token_is_an_input:
+                if tag_charnos_inside:
+                    print(
+                        "Error. The following tags were found inside of a type tag: "
+                    )
+                    print(
+                        ', '.join(
+                            tag_by_charno[c] for c in tag_charnos_inside
+                        )
+                    )
+
+                input_list.append((prefix, input))
+
+                charno = nextcharno
+            else:
+                if not tag_charnos_inside:
+                    literal_output = output
+                else:
+                    nearest_tag_at = tag_charnos_inside[-1]
+
+                    # / charno      / nextcharno
+                    # |             |
+                    # www <foo> xxx [bar] yyy <zaz>
+                    #     |
+                    #     \ nearest_tag_at
+
+                    # this "+2" counts the < and > markers
+                    tag_len = len(tag_by_charno[nearest_tag_at]) + 2
+
+                    literal_output_len = (
+                        nextcharno - nearest_tag_at - tag_len
+                    )
+                    literal_output = output[-literal_output_len:]
+
+                prefix = literal_output  # TODO check len, emptyness, etc
+                charno = nextcharno
+
+        return input_list
+
 
 # Extra tests
 '''

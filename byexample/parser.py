@@ -9,7 +9,12 @@ from .parser_sm import SM_NormWS, SM_NotNormWS
 def tag_name_as_regex_name(name):
     return name.replace('-', '_')
 
+
 TagRegexs = collections.namedtuple('TagRegexs', ['for_split', 'for_capture'])
+InputRegexs = collections.namedtuple(
+    'InputRegexs', ['for_check', 'for_capture']
+)
+
 
 class ExampleParser(ExtendOptionParserMixin):
     def __init__(self, verbosity, encoding, options, **unused):
@@ -74,10 +79,36 @@ class ExampleParser(ExtendOptionParserMixin):
 
         name_re = r'[A-Za-z.][A-Za-z0-9:.-]*'
         return TagRegexs(
-                for_split = re.compile(r"(%s%s%s)" % (open, name_re, close)),
-                for_capture = re.compile(r"%s(?P<name>%s)%s" % (open, name_re, close))
-                )
-        return {
+            for_split=re.compile(r"(%s%s%s)" % (open, name_re, close)),
+            for_capture=re.compile(
+                r"%s(?P<name>%s)%s" % (open, name_re, close)
+            )
+        )
+
+    @constant
+    def input_regexs(self):
+        open, close = map(re.escape, '[]')
+        input_re = r'''
+            %s          # open marker
+            (?P<input>
+            [^%s\\]*    # neither a close marker or a slash
+            (?:\\.[^%s\\]*)*    # a "escaped" char followed by
+                                # 0 or more "neither a close marker or a slash"
+            )
+            %s          # a close marker
+            ''' % (open, close, close, close)
+
+        input_re_at_end = r'''
+            %s          # the input regex
+            (?P<trailing>
+                [ ]*$   # followed by some optional space and a end of line
+            )
+            ''' % (input_re)
+
+        return InputRegexs(
+            for_check=re.compile(input_re, re.VERBOSE | re.MULTILINE),
+            for_capture=re.compile(input_re_at_end, re.VERBOSE | re.MULTILINE)
+        )
 
     def ellipsis_marker(self):
         return '...'
@@ -224,17 +255,15 @@ class ExampleParser(ExtendOptionParserMixin):
             >>> tags_by_idx
             {2: None, 4: 'foo-bar'}
         '''
-        regex = self.capture_tag_regexs()
-        capture_tag_regex = regex.for_capture
-        capture_tag_split_regex = regex.for_split
-        ellipsis_marker = self.ellipsis_marker()
         if normalize_whitespace:
             sm = SM_NormWS(
-                capture_tag_regex, capture_tag_split_regex, ellipsis_marker
+                self.capture_tag_regexs(),
+                self.ellipsis_marker()
             )
         else:
             sm = SM_NotNormWS(
-                capture_tag_regex, capture_tag_split_regex, ellipsis_marker
+                self.capture_tag_regexs(),
+                self.ellipsis_marker()
             )
 
         return sm.parse(expected, tags_enabled)

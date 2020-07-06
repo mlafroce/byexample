@@ -1,10 +1,19 @@
+OS
+--
+
+$ uname | grep -i darwin
+<os-darwin>
+
 Background process
 ------------------
 
 $ sleep 4 >/dev/null 2>&1 &
 <...>
 
-$ echo "$!"
+$ echo "$!"                         # byexample: +unless=os-darwin
+<pid>
+
+$ pgrep -f "sleep 4"                # byexample: +if=os-darwin
 <pid>
 
 $ jobs -l                           # byexample: +paste +norm-ws
@@ -18,10 +27,13 @@ Job control and monitoring
 --------------------------
 
 $ set +m
-$ sleep 1 >/dev/null 2>&1 &
+$ sleep 5 >/dev/null 2>&1 &
 <...>
 
-$ echo "$!"
+$ echo "$!"                         # byexample: +unless=os-darwin
+<pid>
+
+$ pgrep -f "sleep 5"                # byexample: +if=os-darwin
 <pid>
 
 $ jobs -l                           # byexample: +paste +norm-ws

@@ -5,6 +5,8 @@ $ hash ksh 2>/dev/null && echo "installed"
 $ hash dash 2>/dev/null && echo "installed"
 <dash-installed>
 
+$ uname | grep -i darwin
+<os-darwin>
 
 $ hash byexample                                    # byexample: +fail-fast
 $ alias byexample=byexample\ --pretty\ none
@@ -72,7 +74,7 @@ You can get the process id of the process running in background and
 its job id to control it later.
 
 ```shell
-$ echo "$!"                         # byexample: +paste
+$ echo "$!"                         # byexample: +paste +unless=os-darwin
 <pid>
 
 $ jobs -l                           # byexample: +paste +norm-ws
@@ -90,7 +92,7 @@ Here is an example (the ``%%`` is replaced by the job id by the shell):
 
 ```shell
 $ kill %% ; wait                    # byexample: +timeout=4 +norm-ws +paste
-[<job-id>]+ Terminated <...>
+[<job-id>]+ Terminated<...>
 ```
 
 ### Subshells
@@ -127,7 +129,7 @@ $ set +m
 $ sleep 1 >/dev/null 2>&1 &
 [<job-id>] <pid>
 
-$ echo "$!"                         # byexample: +paste
+$ echo "$!"                         # byexample: +paste +unless=os-darwin
 <pid>
 
 $ jobs -l                           # byexample: +paste +norm-ws
@@ -272,15 +274,15 @@ You can change the default shell from the command line with the
 ```shell
 $ byexample -l shell -o '+shell=bash' test/ds/shell-example  # byexample: +timeout=8
 <...>
-[PASS] Pass: 14 Fail: 0 Skip: 0
+[PASS] Pass: 15 Fail: 0 Skip: 2
 
 $ byexample -l shell -o '+shell=dash' test/ds/shell-example  # byexample: +if=dash-installed +timeout=8
 <...>
-[PASS] Pass: 14 Fail: 0 Skip: 0
+[PASS] Pass: 15 Fail: 0 Skip: 2
 
 $ byexample -l shell -o '+shell=ksh' test/ds/shell-example   # byexample: +if=ksh-installed +timeout=8
 <...>
-[PASS] Pass: 14 Fail: 0 Skip: 0
+[PASS] Pass: 15 Fail: 0 Skip: 2
 ```
 
 The option can only be set from the command line and it will affect
@@ -304,7 +306,7 @@ we could run:
 ```shell
 $ byexample -l shell -x-shebang 'shell:%e bash --norc --noprofile' test/ds/shell-example
 <...>
-[PASS] Pass: 14 Fail: 0 Skip: 0
+[PASS] Pass: 15 Fail: 0 Skip: 2
 ```
 
 <!--

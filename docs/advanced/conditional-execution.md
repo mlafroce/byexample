@@ -44,7 +44,7 @@ Then we can write the conditional example:
 ```shell
 $ byexample -l shell -o '+shell=ksh' test/ds/shell-example  # byexample: +if=ksh-installed
 <...>
-[PASS] Pass: 14 Fail: 0 Skip: 0
+[PASS] Pass: 15 Fail: 0 Skip: 2
 ```
 
 The ``+if`` option receives the name of a tag: if this capture tag is empty, the

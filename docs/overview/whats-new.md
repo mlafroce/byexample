@@ -41,13 +41,13 @@ $ profile() {
 >    read -p "name: " NAME
 >    read -p "email: " EMAIL
 >
->    echo "Profile for $EMAIL created. Welcome $NAME!"
+>    echo "Profile for $EMAIL created. Welcome $NAME"
 > }
 
 $ profile               # byexample: +input
 name: [John Doe]
 email: [jdoe@example.com]
-Profile for jdoe@example.com created. Welcome John Doe!
+Profile for jdoe@example.com created. Welcome John Doe
 ```
 
 `+input` allows you to type one or more phrases delimited by `[...]`.

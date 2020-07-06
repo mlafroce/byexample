@@ -36,6 +36,13 @@ $ hash ksh 2>/dev/null && echo "installed"
 <ksh-installed>
 ```
 
+<!--
+If the OS is darwin, disable ksh
+
+$ uname | grep -i -v darwin     # byexample: +if=ksh-installed
+<ksh-installed>
+-->
+
 If the ``ksh`` shell is installed in the system, the ``<ksh-installed>`` tag
 will contain the *non-empty string* ``installed``. If not, it will be *empty*.
 

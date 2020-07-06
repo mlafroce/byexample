@@ -8,6 +8,11 @@ $ hash dash 2>/dev/null && echo "installed"
 $ uname | grep -i darwin
 <os-darwin>
 
+If the OS is darwin, disable ksh
+
+$ uname | grep -i -v darwin     # byexample: +if=ksh-installed
+<ksh-installed>
+
 $ hash byexample                                    # byexample: +fail-fast
 $ alias byexample=byexample\ --pretty\ none
 
